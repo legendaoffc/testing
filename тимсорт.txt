@@ -1,0 +1,172 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <ctime>
+#include <cassert>
+#include <chrono> // Для измерения времени выполнения
+
+const int RUN = 32; // Минимальный размер для сортировки вставками
+
+// Функция сортировки вставками для небольших последовательностей
+void insertionSort(std::vector<int>& arr, int left, int right) {
+    for (int i = left + 1; i <= right; i++) {
+        int temp = arr[i];
+        int j = i - 1;
+        while (j >= left && arr[j] > temp) {
+            arr[j + 1] = arr[j];
+            j--;
+        }
+        arr[j + 1] = temp;
+    }
+}
+
+// Функция для minrun
+int minRunLength(int n) {
+    int r = 0;
+    while (n >= RUN) {
+        r |= n & 1;
+        n >>= 1;
+    }
+    return n + r;
+}
+
+// Режим галопа
+int gallopSearchLeft(const std::vector<int>& arr, int key, int base, int len) {
+    int lastOffset = 0, offset = 1;
+
+    if (key > arr[base]) {
+        int maxOffset = len;
+        while (offset < maxOffset && key > arr[base + offset]) {
+            lastOffset = offset;
+            offset = (offset << 1) + 1;
+            if (offset <= 0) offset = maxOffset; // предотвращение переполнения
+        }
+        if (offset > maxOffset) offset = maxOffset;
+    } else {
+        offset = 0;
+    }
+    return base + lastOffset;
+}
+
+// Функция для слияния двух отсортированных подмассивов с использованием режима галопа
+void merge(std::vector<int>& arr, int l, int m, int r) {
+    int len1 = m - l + 1, len2 = r - m;
+    std::vector<int> left(len1), right(len2);
+
+    for (int i = 0; i < len1; i++) left[i] = arr[l + i];
+    for (int i = 0; i < len2; i++) right[i] = arr[m + 1 + i];
+
+    int i = 0, j = 0, k = l, gallop_count = 0;
+
+    while (i < len1 && j < len2) {
+        if (left[i] <= right[j]) {
+            arr[k++] = left[i++];
+            gallop_count = 0; // Сбрасываем счетчик галопа
+        } else {
+            arr[k++] = right[j++];
+            gallop_count++;
+            // Проверка на режим галопа
+            if (gallop_count >= RUN) {
+                int new_i = gallopSearchLeft(left, right[j], i, len1 - i);
+                for (; i < new_i; i++) arr[k++] = left[i];
+                gallop_count = 0;
+            }
+        }
+    }
+
+    // Копирование оставшихся элементов
+    while (i < len1) arr[k++] = left[i++];
+    while (j < len2) arr[k++] = right[j++];
+}
+
+// Основная функция Timsort
+void timSort(std::vector<int>& arr, int n) {
+    int minRun = minRunLength(RUN);
+
+    // Сортировка вставками для каждого подмассива размером RUN
+    for (int i = 0; i < n; i += RUN) {
+        insertionSort(arr, i, std::min(i + RUN - 1, n - 1));
+    }
+
+    // Объединение отсортированных подмассивов с увеличением размера run
+    for (int size = RUN; size < n; size = 2 * size) {
+        for (int left = 0; left < n; left += 2 * size) {
+            int mid = left + size - 1;
+            int right = std::min((left + 2 * size - 1), (n - 1));
+
+            if (mid < right) {
+                merge(arr, left, mid, right);
+            }
+        }
+    }
+}
+
+// Функция для проверки, что массив содержит больше run элементов
+bool validateArraySize(int size) {
+    if (size <= RUN) {
+        std::cout << "Ошибка: размер массива должен быть больше " << RUN << " элементов." << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// Тестовая функция для проверки корректности сортировки
+void testTimSort(int arraySize) {
+    // Генерация случайного массива заданного размера
+    std::vector<int> arr(arraySize);
+    for (int i = 0; i < arraySize; i++) {
+        arr[i] = std::rand() % 1000;
+    }
+
+    // Копия для проверки
+    std::vector<int> expected = arr;
+    std::sort(expected.begin(), expected.end()); // Стандартная сортировка C++
+
+    timSort(arr, arr.size());
+
+    // Проверка совпадения с результатом стандартной сортировки
+    assert(arr == expected && "Тест не пройден: Timsort работает некорректно");
+    std::cout << "Тест пройден: Timsort работает корректно!" << std::endl;
+}
+
+int main() {
+    // Запрос у пользователя размера массива
+    int arraySize;
+    std::cout << "Введите размер массива: ";
+    std::cin >> arraySize;
+
+    // Проверка, что размер массива больше RUN
+    if (!validateArraySize(arraySize)) {
+        return 1; // Завершение программы, если размер недостаточен
+    }
+
+    // Инициализация генератора случайных чисел
+    std::srand(static_cast<unsigned int>(std::time(0)));
+
+    // Выполнение теста
+    testTimSort(arraySize);
+
+    // Генерация и сортировка случайного массива для замера времени
+    std::vector<int> arr(arraySize);
+    for (int i = 0; i < arraySize; i++) {
+        arr[i] = std::rand() % 1000;
+    }
+
+    // Замер времени выполнения Timsort
+    auto start = std::chrono::high_resolution_clock::now();
+    timSort(arr, arr.size());
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    // Вывод времени выполнения
+    std::cout << "Время выполнения Timsort: " << duration << " миллисекунд" << std::endl;
+
+    // Вывод отсортированного массива
+    std::cout << "Отсортированный массив:" << std::endl;
+    for (int i = 0; i < arraySize; i++) {
+        std::cout << arr[i] << " ";
+    }
+    std::cout << std::endl;
+
+    return 0;
+}
